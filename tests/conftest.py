@@ -79,4 +79,3 @@ def sessao() -> Session:
     finally:
         sessao.rollback()
         sessao.close() 
---
