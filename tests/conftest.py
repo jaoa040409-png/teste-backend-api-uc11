@@ -78,4 +78,5 @@ def sessao() -> Session:
         yield sessao
     finally:
         sessao.rollback()
-        sessao.close()
+        sessao.close() .
+        
