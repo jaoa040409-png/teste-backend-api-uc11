@@ -1,3 +1,10 @@
+import pytest # noqa: E402
+from fastapi.testclient import TestClient 
+from sqlalchemy.orm import Session
+from app.database import Base, SessionLocal, criar_tabelas, engine # noqa: E402
+from app.dependencies import obter_hasher 
+from app.main import app 
+from app.security import HashBcrypt, HashDeSenha  
 """Configuração comum dos testes.
 
 O pytest encontra este arquivo sozinho e aplica o que há nele a **todos** os
@@ -79,3 +86,73 @@ def sessao() -> Session:
     finally:
         sessao.rollback()
         sessao.close()
+
+# =============================================================================
+# Dia 7 — HTTP: o dublê e o cliente
+# =============================================================================
+class HashFake(HashDeSenha):
+    """Hash previsível e instantâneo, para uso exclusivo nos testes de API.
+    É um **dublê de teste**: um substituto que cumpre o mesmo contrato do objeto
+    real e serve a um propósito diferente.
+    Existe porque a aplicação usa o bcrypt com custo 12 — centenas de
+    milissegundos por hash, de propósito, para encarecer um ataque de força
+    bruta. Cada cadastro e cada login pela API pagariam esse custo, sem testar
+    nada de novo.
+    Só é possível substituir porque `HashDeSenha` é uma classe abstrata, e a
+    aplicação depende do contrato, não da implementação.
+    O formato `fake$senha` é legível de propósito: quando um teste falha, a
+    mensagem mostra exatamente qual senha foi usada. Em produção isso seria uma
+    falha grave de segurança — e é por isso que esta classe nunca sai de
+    `tests/`. A resistência do algoritmo real continua verificada em
+    `test_seguranca.py`.
+    """
+    def gerar(self, senha: str) -> str:
+        return f"fake${senha}"
+    def verificar(self, senha: str, hash_armazenado: str) -> bool:
+        return hash_armazenado == self.gerar(senha)
+@pytest.fixture
+def cliente(banco_limpo) -> TestClient:
+    """Cliente HTTP **sem** autenticação, com o hash substituído pelo dublê.
+    **`dependency_overrides`** é o mecanismo do FastAPI para trocar uma
+    dependência durante o teste. A aplicação pede `obter_hasher`; aqui o
+    `HashFake` é posto no lugar, e o serviço nem sabe da substituição.
+    O `finally` com `clear()` é obrigatório: `app` é um objeto global,
+    compartilhado por todos os testes. Uma substituição que não fosse desfeita
+    vazaria para o teste seguinte.
+    **`TestClient(app)` é usado sem `with` de propósito.** Com `with`, o
+    cliente dispara o ciclo de vida da aplicação, que tentaria criar as tabelas
+    de novo. Quem cuida disso é a `banco_limpo`, pedida aqui no parâmetro para
+    garantir a ordem: banco limpo primeiro, cliente depois.
+    """
+    app.dependency_overrides[obter_hasher] = HashFake
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+import pytest
+from fastapi.testclient import TestClient
+
+@pytest.fixture
+def sessao_aberta(cliente: TestClient) -> dict:
+    """Cadastra um usuário e devolve a resposta do cadastro: token e usuário.
+    Uma fixture que **pede outra**: ela recebe o `cliente` pronto.
+    O `assert` aqui dentro não é um teste: é uma **pré-condição**. Se o
+    cadastro falhar, o erro aparece aqui, com o corpo da resposta na mensagem,
+    em vez de virar um `KeyError` incompreensível dentro do teste.
+    """
+    resposta = cliente.post(
+        "/usuarios",
+        json={"nome": "Ana Souza", "email": "ana@exemplo.com", "senha": "senha123"},
+    )
+    assert resposta.status_code == 201, resposta.text
+    return resposta.json()
+@pytest.fixture
+def usuario(sessao_aberta: dict) -> dict:
+    """Um usuário já cadastrado: o dicionário `usuario` da resposta.
+    A cadeia inteira — `banco_limpo` → `cliente` → `sessao_aberta` →
+    `usuario` — é montada pelo pytest na ordem certa. Um teste que pede só
+    `usuario` recebe tudo isso de graça.
+    """
+    return sessao_aberta["usuario"]
