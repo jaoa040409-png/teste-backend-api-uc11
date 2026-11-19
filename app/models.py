@@ -89,10 +89,6 @@ class Usuario(Base):
         """Informa se a senha apresentada corresponde à cadastrada."""
         return hasher.verificar(senha, self._senha_hash)
 
-    @property
-    def senha_hash(self) -> str:
-        """Hash da senha, para conferência durante a depuração."""
-        return self._senha_hash
 
     def tarefas_pendentes(self) -> list[Tarefa]:
         """Tarefas do usuário que ainda não foram concluídas.

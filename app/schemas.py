@@ -66,7 +66,6 @@ class UsuarioOut(EsquemaDeSaida):
     id: int
     nome: str
     email: EmailStr
-    senha_hash: str
     criado_em: datetime
 
 
