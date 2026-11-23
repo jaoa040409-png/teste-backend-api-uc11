@@ -156,3 +156,25 @@ def usuario(sessao_aberta: dict) -> dict:
     `usuario` recebe tudo isso de graça.
     """
     return sessao_aberta["usuario"]
+
+# =============================================================================
+# Dia 8 — a sessão aberta
+# =============================================================================
+@pytest.fixture
+def token(sessao_aberta: dict) -> str:
+    """O token de acesso do usuário da fixture `usuario`.
+    `usuario` e `token` pedem a **mesma** `sessao_aberta`. O pytest cria cada
+    fixture uma única vez por teste, então os dois vêm do mesmo cadastro — o
+    token identifica exatamente aquele usuário, e não um segundo parecido.
+    """
+    return sessao_aberta["accessToken"]
+@pytest.fixture
+def cliente_logado(cliente: TestClient, token: str) -> TestClient:
+    """Cliente HTTP que envia `Authorization: Bearer <token>` em toda chamada.
+    O cabeçalho entra nos *headers* padrão do cliente em vez de ser repetido em
+    cada requisição: o que cada teste verifica é o comportamento do endpoint,
+    não a montagem do cabeçalho — essa é verificada à parte, em
+    `test_autenticacao.py`.
+    """
+    cliente.headers["Authorization"] = f"Bearer {token}"
+    return cliente
