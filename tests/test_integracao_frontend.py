@@ -96,3 +96,53 @@ def test_email_invalido_em_portugues(cliente: TestClient):
         "/usuarios", json={"nome": "Ana", "email": "nao-e-email", "senha": "senha123"}
     )
     assert "e-mail inválido" in resposta.json()["detail"]
+
+# =============================================================================
+# Dia 8 — o contrato da autenticação
+# =============================================================================
+def test_todos_os_endpoints_de_tarefa_exigem_token(cliente: TestClient):
+ """Sem `Authorization`, nenhuma operação de tarefa passa.
+ O teste verifica os cinco endpoints de uma vez, comparando a **lista** de
+ códigos. Um endpoint novo que esquecesse a autenticação não apareceria
+ aqui — apareceria no `test_openapi_expoe_os_sete_endpoints`, do Dia 7, que
+ conta as rotas. Os dois juntos fecham o cerco.
+ """
+ chamadas = [
+ cliente.get("/tasks"),
+ cliente.post("/tasks", json={"titulo": "X"}),
+ cliente.patch("/tasks/1", json={"titulo": "X"}),
+ cliente.delete("/tasks/1"),
+ cliente.get("/usuarios/eu"),
+ ]
+ assert [c.status_code for c in chamadas] == [401, 401, 401, 401, 401]
+def test_erro_de_autenticacao_tem_detail_em_texto(cliente: TestClient):
+ """O 401 também precisa caber em `setErro(e.message)`."""
+ resposta = cliente.get("/tasks")
+ assert resposta.status_code == 401
+ assert isinstance(resposta.json()["detail"], str)
+ assert resposta.json()["detail"].strip()
+def test_cors_libera_o_cabecalho_authorization(cliente: TestClient):
+ """O `preflight` precisa autorizar o cabeçalho que o cliente vai enviar.
+ `cliente.options(...)` é a requisição que o navegador faz por conta
+ própria, antes da requisição de verdade.
+ """
+ resposta = cliente.options(
+ "/tasks",
+ headers={
+ "Origin": "http://localhost:5173",
+ "Access-Control-Request-Method": "GET",
+ "Access-Control-Request-Headers": "authorization,content-type",
+ },
+ )
+ assert resposta.status_code == 200
+ permitidos = resposta.headers.get("access-control-allow-headers", "").lower()
+ assert "authorization" in permitidos
+def test_total_e_exposto_ao_navegador(cliente: TestClient):
+ """Sem `expose_headers`, o `fetch` do navegador não lê o `X-Total-Count`.
+ O servidor responde certo, o cliente não consegue ler, e os logs do
+ servidor não registram nada de anormal. É a categoria de defeito que só um
+ teste de contrato encontra.
+ """
+ resposta = cliente.get("/", headers={"Origin": "http://localhost:5173"})
+ expostos = resposta.headers.get("access-control-expose-headers", "")
+ assert "X-Total-Count" in expostos
