@@ -4,11 +4,13 @@ O arquivo cresce em três etapas, cada uma com uma seção nova no final:
 2. o cabeçalho `Authorization`, pela API;
 3. o isolamento entre contas – uma conta não alcança os dados da outra.
 """
-
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session 
 from datetime import timedelta
 import jwt
 import pytest
 from app.exceptions import NaoAutenticado, SessaoExpirada
+from app.models import Usuario
 from app.tokens import ALGORITMO, TokenDeAcesso
 
 # Segredo próprio deste arquivo, com mais de 32 bytes.
@@ -92,3 +94,54 @@ def test_token_nao_guarda_dados_pessoais(tokens: TokenDeAcesso):
     """O conteúdo de um JWT é legível por qualquer um que tenha o token."""
     conteudo = jwt.decode(tokens.emitir(42), SEGREDO, algorithms=[ALGORITMO])
     assert set(conteudo) == {"sub", "iat", "exp"}
+
+# =============================================================================
+# Dia 8 — o cabeçalho `Authorization`, pela API
+# =============================================================================
+def test_sem_cabecalho_responde_401(cliente: TestClient):
+ """401 é "não sei quem você é"; 403 seria "sei e você não pode".
+ O cliente trata 401 limpando o token e mandando entrar de novo, e 403
+ mostrando "sem permissão". Trocar os dois faz o aplicativo pedir login a
+ quem já está logado, ou o contrário.
+ """
+ assert cliente.get("/tasks").status_code == 401
+@pytest.mark.parametrize(
+ "cabecalho",
+ [
+ "token-sem-esquema",
+ "Basic YWxhZGRpbjpvcGVuc2VzYW1l",
+ "Bearer",
+ "Bearer ",
+ ],
+)
+def test_cabecalho_mal_formado_responde_401(cliente: TestClient, cabecalho: str):
+ """Quatro formas de errar o cabeçalho, todas com a mesma resposta.
+ Esqueceu o esquema; usou o esquema errado; mandou o esquema sem token;
+ mandou o esquema com espaços. Nenhuma pode virar 500.
+ """
+ resposta = cliente.get("/tasks", headers={"Authorization": cabecalho})
+ assert resposta.status_code == 401
+
+def test_token_valido_de_conta_apagada_responde_401(
+ cliente: TestClient, sessao_aberta: dict, sessao: Session
+):
+ """A conta sumiu, o token continua assinado — e a sessão não vale mais.
+ É por isso que o usuário é buscado no banco a cada requisição, em vez de
+ reconstruído a partir do token.
+ É o único teste da suíte que usa ao mesmo tempo o `cliente` (Dia 7) e a
+ `sessao` de banco (Dia 5): é preciso apagar pelo banco o que a API não
+ oferece endpoint para apagar.
+ """
+ autorizacao = {"Authorization": f"Bearer {sessao_aberta['accessToken']}"}
+ assert cliente.get("/usuarios/eu", headers=autorizacao).status_code == 200
+ apagado = sessao.get(Usuario, sessao_aberta["usuario"]["id"])
+ sessao.delete(apagado)
+ sessao.commit()
+ assert cliente.get("/usuarios/eu", headers=autorizacao).status_code == 401
+def test_openapi_declara_o_esquema_bearer(cliente: TestClient):
+ """É o que faz aparecer o botão **Authorize** no `/docs`."""
+ esquema = cliente.get("/openapi.json").json()
+ esquemas = esquema["components"].get("securitySchemes", {})
+ assert any(
+ definicao.get("scheme") == "bearer" for definicao in esquemas.values()
+ )
