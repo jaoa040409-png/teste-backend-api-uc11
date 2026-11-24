@@ -145,3 +145,92 @@ def test_openapi_declara_o_esquema_bearer(cliente: TestClient):
  assert any(
  definicao.get("scheme") == "bearer" for definicao in esquemas.values()
  )
+ 
+ # =============================================================================
+# Dia 9 — isolamento entre contas: duas sessões ao mesmo tempo
+# =============================================================================
+def tarefa_de(cliente: TestClient, sessao: dict, titulo: str) -> dict:
+ """Cria uma tarefa em nome do dono da sessão informada.
+ É uma fábrica, como as do Dia 1, e existe por um motivo específico: estes
+ testes precisam agir como **duas** pessoas diferentes, o que o
+ `cliente_logado` — que tem um token fixo — não permite.
+ """
+ resposta = cliente.post(
+ "/tasks",
+ json={"titulo": titulo},
+ headers={"Authorization": f"Bearer {sessao['accessToken']}"},
+ )
+ assert resposta.status_code == 201, resposta.text
+ return resposta.json()
+def test_a_listagem_so_traz_as_tarefas_do_dono_do_token(
+ cliente: TestClient, sessao_aberta: dict, outro_usuario: dict
+):
+ """Não existe parâmetro para pedir "as tarefas de alguém".
+ O `X-Total-Count` é conferido junto porque um total que contasse as
+ tarefas de todos vazaria informação mesmo com a lista correta.
+ """
+ tarefa_de(cliente, sessao_aberta, "Minha")
+ tarefa_de(cliente, outro_usuario, "Dele")
+ minhas = cliente.get(
+ "/tasks",
+ headers={"Authorization": f"Bearer {sessao_aberta['accessToken']}"},
+ )
+ assert [t["titulo"] for t in minhas.json()] == ["Minha"]
+ assert minhas.headers["X-Total-Count"] == "1"
+ 
+def test_nao_se_altera_a_tarefa_de_outra_conta(
+ cliente: TestClient, sessao_aberta: dict, outro_usuario: dict
+):
+ """Os ids são sequenciais: quem tem uma conta qualquer sabe que existe a
+ tarefa 1, a 2, a 3. Saber o id não pode bastar para editar.
+ A mensagem é conferida porque ela precisa dizer o que aconteceu sem
+ revelar nada sobre a tarefa alheia.
+ """
+ alheia = tarefa_de(cliente, outro_usuario, "Tarefa do Bruno")
+ resposta = cliente.patch(
+ f"/tasks/{alheia['id']}",
+ json={"titulo": "Invadida"},
+ headers={"Authorization": f"Bearer {sessao_aberta['accessToken']}"},
+ )
+ assert resposta.status_code == 403
+ assert resposta.json()["detail"] == "Esta tarefa pertence a outro usuário."
+ 
+def test_nao_se_apaga_a_tarefa_de_outra_conta(
+ cliente: TestClient, sessao_aberta: dict, outro_usuario: dict
+):
+ """A mesma verificação no `DELETE`, e ela precisa ser testada à parte.
+ `PATCH` e `DELETE` são dois caminhos no código. Um deles podia ter a
+ verificação e o outro não.
+ """
+ alheia = tarefa_de(cliente, outro_usuario, "Tarefa do Bruno")
+ resposta = cliente.delete(
+ f"/tasks/{alheia['id']}",
+ headers={"Authorization": f"Bearer {sessao_aberta['accessToken']}"},
+ )
+ assert resposta.status_code == 403
+def test_a_tarefa_recusada_continua_intacta(
+ cliente: TestClient, sessao_aberta: dict, outro_usuario: dict
+):
+ """Recusar não é o bastante: é preciso que nada tenha mudado.
+ Um 403 devolvido *depois* de gravar a alteração seria **pior do que não
+ ter verificação nenhuma**, porque pareceria seguro. A resposta é uma
+ evidência do que aconteceu, não a prova. A prova é olhar o estado depois.
+ """
+ dele = {"Authorization": f"Bearer {outro_usuario['accessToken']}"}
+ alheia = tarefa_de(cliente, outro_usuario, "Original")
+ cliente.patch(
+ f"/tasks/{alheia['id']}",
+ json={"titulo": "Invadida"},
+ headers={"Authorization": f"Bearer {sessao_aberta['accessToken']}"},
+ )
+ depois = cliente.get("/tasks", headers=dele).json()
+ assert [t["titulo"] for t in depois] == ["Original"]
+def test_tarefa_inexistente_responde_404_e_nao_403(
+ cliente_logado: TestClient,
+):
+ """404 é "não existe"; 403 é "existe e não é sua".
+ Responder 403 confirma que a tarefa **existe**, o que é um vazamento
+ pequeno mas real. Este projeto escolheu a clareza para quem integra, e a
+ decisão está registrada no manual técnico.
+ """
+ assert cliente_logado.delete("/tasks/9999").status_code == 404

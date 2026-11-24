@@ -178,3 +178,20 @@ def cliente_logado(cliente: TestClient, token: str) -> TestClient:
     """
     cliente.headers["Authorization"] = f"Bearer {token}"
     return cliente
+
+# =============================================================================
+# Dia 9 — a segunda conta
+# =============================================================================
+@pytest.fixture
+def outro_usuario(cliente: TestClient) -> dict:
+ """Uma segunda conta, com a sua própria sessão.
+ Provar que uma conta não alcança as tarefas da outra exige duas contas de
+ verdade. Devolve a resposta inteira do cadastro — token e usuário —,
+ porque os testes de isolamento precisam dos dois.
+ """
+ resposta = cliente.post(
+ "/usuarios",
+ json={"nome": "Bruno Lima", "email": "bruno@exemplo.com", "senha": "senha456"},
+ )
+ assert resposta.status_code == 201, resposta.text
+ return resposta.json()

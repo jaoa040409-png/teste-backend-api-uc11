@@ -300,3 +300,20 @@ def test_remover_a_mesma_tarefa_duas_vezes_devolve_404(cliente_logado: TestClien
     criada = cliente_logado.post("/tasks", json={"titulo": "Remover"}).json()
     cliente_logado.delete(f"/tasks/{criada['id']}")
     assert cliente_logado.delete(f"/tasks/{criada['id']}").status_code == 404
+
+# =============================================================================
+# Dia 9 — duas contas
+# =============================================================================
+def test_usuario_id_no_corpo_e_ignorado(
+ cliente_logado: TestClient, usuario: dict, outro_usuario: dict
+):
+ """Mandar `usuarioId` de outra pessoa não cria tarefa para ela.
+ É um **teste de regressão**: não verifica uma regra nova, e sim que uma
+ falha já corrigida — o dono vir do corpo da requisição — não volta.
+ """
+ resposta = cliente_logado.post(
+ "/tasks",
+ json={"titulo": "Tentativa", "usuarioId": outro_usuario["usuario"]["id"]},
+ )
+ assert resposta.status_code == 201
+ assert resposta.json()["usuarioId"] == usuario["id"]
