@@ -89,7 +89,6 @@ class Usuario(Base):
         """Informa se a senha apresentada corresponde à cadastrada."""
         return hasher.verificar(senha, self._senha_hash)
 
-
     def tarefas_pendentes(self) -> list[Tarefa]:
         """Tarefas do usuário que ainda não foram concluídas.
 
@@ -97,9 +96,7 @@ class Usuario(Base):
         usuário conhece as suas tarefas e sabe responder sobre elas.
         """
         return [
-            tarefa
-            for tarefa in self.tarefas
-            if tarefa.status is StatusTarefa.PENDENTE
+            tarefa for tarefa in self.tarefas if tarefa.status is StatusTarefa.PENDENTE
         ]
 
     @validates("nome")
@@ -128,9 +125,7 @@ class Tarefa(Base):
     __tablename__ = "tarefas"
 
     id = Column(Integer, primary_key=True, index=True)
-    usuario_id = Column(
-        Integer, ForeignKey("usuarios.id"), nullable=False, index=True
-    )
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
     titulo = Column(String(200), nullable=False)
     # Status e data de conclusão são privados porque estão amarrados entre si
     # pela RN-03: mexer em um sem o outro deixaria a tarefa em estado
@@ -206,13 +201,10 @@ class Tarefa(Base):
         sobrescreve a data original. É esse caso que impede que editar o título
         de uma tarefa antiga falsifique a sua data de conclusão.
         """
-        if self.status is StatusTarefa.CONCLUIDA:
-         
+        if self._status == StatusTarefa.CONCLUIDA.value:
             return
-
         self._status = StatusTarefa.CONCLUIDA.value
         self._concluido_em = agora or agora_utc()
-
 
     def reabrir(self) -> None:
         """Devolve a tarefa para pendente e apaga a data de conclusão (RN-03)."""
@@ -271,6 +263,5 @@ class Tarefa(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Tarefa id={self.id} titulo={self.titulo!r} "
-            f"status={self._status!r}>"
+            f"<Tarefa id={self.id} titulo={self.titulo!r} " f"status={self._status!r}>"
         )
